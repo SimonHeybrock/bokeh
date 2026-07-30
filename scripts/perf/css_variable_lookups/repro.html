@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bokehjs: CSS custom-property lookups per visual-property read</title>
+<script>
+// Instrumentation must be installed before bokehjs loads.
+window.__stats = {gcs: 0, bk: 0, ms: 0, names: {}}
+const _gcs = window.getComputedStyle
+window.getComputedStyle = function(...args) {
+  window.__stats.gcs++
+  const t0 = performance.now()
+  const decl = _gcs.apply(window, args)
+  window.__stats.ms += performance.now() - t0
+  return decl
+}
+const _gpv = CSSStyleDeclaration.prototype.getPropertyValue
+CSSStyleDeclaration.prototype.getPropertyValue = function(name) {
+  const s = window.__stats
+  if (name.startsWith("--bk-") || name.startsWith("--bokeh-")) {
+    s.bk++
+    s.names[name] = (s.names[name] || 0) + 1
+  }
+  const t0 = performance.now()
+  const r = _gpv.call(this, name)
+  s.ms += performance.now() - t0
+  return r
+}
+window.__reset = () => Object.assign(window.__stats, {gcs: 0, bk: 0, ms: 0, names: {}})
+</script>
+<!-- swap the version to compare, e.g. 3.9.1 vs a local build -->
+<script src="https://cdn.bokeh.org/bokeh/release/bokeh-3.9.1.min.js"></script>
+<script src="https://cdn.bokeh.org/bokeh/release/bokeh-api-3.9.1.min.js"></script>
+<style>#root { display: grid; grid-template-columns: 1fr 1fr; }</style>
+</head>
+<body>
+<pre id="out">running…</pre>
+<div id="root"></div>
+<script>
+const {figure, show, gridplot} = Bokeh.Plotting
+const N = 200, FRAMES = 20, PLOTS = 4
+const sources = [], plots = []
+
+const data = (phase) => {
+  const x = [], y = []
+  for (let i = 0; i < N; i++) { x.push(i); y.push(Math.sin(i/10 + phase)*10) }
+  return {x, y}
+}
+
+for (let p = 0; p < PLOTS; p++) {
+  const src = new Bokeh.ColumnDataSource({data: data(p)})
+  sources.push(src)
+  const fig = figure({width: 400, height: 300, title: `plot ${p}`})
+  fig.line({field: "x"}, {field: "y"}, {source: src, line_width: 2})
+  fig.scatter({field: "x"}, {field: "y"}, {source: src, size: 3})
+  plots.push(fig)
+}
+show(gridplot([[plots[0], plots[1]], [plots[2], plots[3]]]), "#root")
+
+const raf = () => new Promise(r => requestAnimationFrame(() => r()))
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+async function run() {
+  await sleep(3000)          // let the initial render settle
+  window.__reset()
+  let phase = 0, busy = 0
+  for (let i = 0; i < FRAMES; i++) {
+    const t = performance.now()
+    phase += 0.1
+    for (const s of sources) s.data = data(phase)   // steady-state update
+    await raf(); await raf()
+    busy += performance.now() - t
+    await sleep(Math.max(0, 1000/1 - (performance.now() - t)))
+  }
+  const s = window.__stats
+  document.getElementById("out").textContent = [
+    `bokeh ${Bokeh.version}   ${PLOTS} figures, ${FRAMES} frames at 1 Hz`,
+    `--bk-*/--bokeh-* lookups : ${s.bk} total, ${(s.bk/FRAMES).toFixed(0)}/frame`,
+    `distinct property names  : ${Object.keys(s.names).length}`,
+    `getComputedStyle calls   : ${s.gcs}`,
+    `time inside CSS engine   : ${s.ms.toFixed(1)} ms`,
+    `main-thread busy         : ${busy.toFixed(1)} ms`,
+    `share of busy time       : ${(100*s.ms/busy).toFixed(1)} %`,
+  ].join("\n")
+}
+run()
+</script>
+</body>
+</html>
