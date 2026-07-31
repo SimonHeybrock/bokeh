@@ -11,6 +11,9 @@ export class HelpButtonView extends AbstractButtonView {
 
   protected tooltip: TooltipView
 
+  /** Whether the tooltip was pinned open by a click on the button. */
+  protected _persistent: boolean = false
+
   override _children_views(): ChildView[] {
     return [...super._children_views(), this.tooltip]
   }
@@ -19,34 +22,20 @@ export class HelpButtonView extends AbstractButtonView {
     await super.lazy_initialize()
     const {tooltip} = this.model
     this.tooltip = await build_view(tooltip, {parent: this})
-  }
-
-  override render(): void {
-    super.render()
-
-    let persistent = false
-
-    const toggle = (visible: boolean) => {
-      this.tooltip.model.setv({
-        visible,
-        closable: persistent,
-      })
-      //icon_el.style.visibility = visible && persistent ? "visible" : ""
-    }
 
     this.on_change(this.tooltip.model.properties.visible, () => {
       const {visible} = this.tooltip.model
       if (!visible) {
-        persistent = false
+        this._persistent = false
       }
-      toggle(visible)
+      this._toggle(visible)
     })
     this.el.addEventListener("mouseenter", () => {
-      toggle(true)
+      this._toggle(true)
     })
     this.el.addEventListener("mouseleave", () => {
-      if (!persistent) {
-        toggle(false)
+      if (!this._persistent) {
+        this._toggle(false)
       }
     })
     document.addEventListener("mousedown", (event) => {
@@ -54,17 +43,24 @@ export class HelpButtonView extends AbstractButtonView {
       if (path.includes(this.tooltip.el)) {
         return
       } else if (path.includes(this.el)) {
-        persistent = !persistent
-        toggle(persistent)
+        this._persistent = !this._persistent
+        this._toggle(this._persistent)
       } else {
-        persistent = false
-        toggle(false)
+        this._unpin()
       }
     }, {signal: this.abort_signal})
     window.addEventListener("blur", () => {
-      persistent = false
-      toggle(false)
+      this._unpin()
     }, {signal: this.abort_signal})
+  }
+
+  protected _unpin(): void {
+    this._persistent = false
+    this._toggle(false)
+  }
+
+  protected _toggle(visible: boolean): void {
+    this.tooltip.model.setv({visible, closable: this._persistent})
   }
 }
 

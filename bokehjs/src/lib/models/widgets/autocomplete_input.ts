@@ -27,6 +27,16 @@ export class AutocompleteInputView extends TextInputView {
     return [...super.stylesheets(), dropdown_css]
   }
 
+  override initialize(): void {
+    super.initialize()
+
+    document.addEventListener("click", (event) => {
+      if (this._open && !event.composedPath().includes(this.el)) {
+        this._hide_menu()
+      }
+    }, {signal: this.abort_signal})
+  }
+
   override render(): void {
     super.render()
     this.input_el.addEventListener("focusin", () => this._toggle_menu())
@@ -112,14 +122,6 @@ export class AutocompleteInputView extends TextInputView {
       this._hover_index = 0
       this._last_value = this.model.value
       display(this.menu)
-
-      const listener = (event: MouseEvent) => {
-        if (!event.composedPath().includes(this.el)) {
-          document.removeEventListener("click", listener)
-          this._hide_menu()
-        }
-      }
-      document.addEventListener("click", listener, {signal: this.abort_signal})
     }
   }
 

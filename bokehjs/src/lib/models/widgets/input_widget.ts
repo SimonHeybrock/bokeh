@@ -39,7 +39,11 @@ export abstract class InputWidgetView extends ControlView {
   protected input_el: HTMLInputElementLike
   protected title_el: HTMLLabelElement
   desc_el: HTMLElement | null = null
+  protected icon_el: HTMLElement | null = null
   protected group_el: HTMLElement
+
+  /** Whether the description tooltip was pinned open by a click on its icon. */
+  protected _persistent: boolean = false
 
   public *controls() {
     yield this.input_el
@@ -50,6 +54,17 @@ export abstract class InputWidgetView extends ControlView {
     const title_view = title instanceof View ? [title] : []
     const description_view = description instanceof View ? [description] : []
     return [...super._children_views(), ...title_view, ...description_view]
+  }
+
+  override initialize(): void {
+    super.initialize()
+
+    document.addEventListener("mousedown", (event) => {
+      this._on_document_mousedown(event)
+    }, {signal: this.abort_signal})
+    window.addEventListener("blur", () => {
+      this._unpin()
+    }, {signal: this.abort_signal})
   }
 
   override async lazy_initialize(): Promise<void> {
@@ -91,10 +106,12 @@ export abstract class InputWidgetView extends ControlView {
   protected _build_description_el(): HTMLElement | null {
     const {description} = this
     if (description == null) {
+      this.icon_el = null
       return null
     } else {
       const icon_el = div({class: inputs.icon})
       const desc_el = div({class: inputs.description}, icon_el)
+      this.icon_el = icon_el
 
       if (isString(description)) {
         desc_el.title = description
@@ -103,50 +120,63 @@ export abstract class InputWidgetView extends ControlView {
           description.target_override.value = desc_el
         }
 
-        let persistent = false
-
-        const toggle = (visible: boolean) => {
-          description.model.setv({
-            visible,
-            closable: persistent,
-          })
-          icon_el.classList.toggle(inputs.opaque, visible && persistent)
-        }
-
-        this.on_change(description.model.properties.visible, () => {
-          const {visible} = description.model
-          if (!visible) {
-            persistent = false
-          }
-          toggle(visible)
-        })
         desc_el.addEventListener("mouseenter", () => {
-          toggle(true)
+          this._toggle_description(true)
         })
         desc_el.addEventListener("mouseleave", () => {
-          if (!persistent) {
-            toggle(false)
+          if (!this._persistent) {
+            this._toggle_description(false)
           }
         })
-        document.addEventListener("mousedown", (event) => {
-          const path = event.composedPath()
-          if (path.includes(description.el)) {
-            return
-          } else if (path.includes(desc_el)) {
-            persistent = !persistent
-            toggle(persistent)
-          } else {
-            persistent = false
-            toggle(false)
-          }
-        }, {signal: this.abort_signal})
-        window.addEventListener("blur", () => {
-          persistent = false
-          toggle(false)
-        }, {signal: this.abort_signal})
       }
       return desc_el
     }
+  }
+
+  /**
+   * Clicking the description's icon pins the tooltip open, clicking anywhere
+   * outside of the icon and the tooltip itself unpins and hides it.
+   */
+  protected _on_document_mousedown(event: MouseEvent): void {
+    const {description, desc_el} = this
+    if (!(description instanceof View) || desc_el == null) {
+      return
+    }
+    const path = event.composedPath()
+    if (path.includes(description.el)) {
+      return
+    } else if (path.includes(desc_el)) {
+      this._persistent = !this._persistent
+      this._toggle_description(this._persistent)
+    } else {
+      this._unpin()
+    }
+  }
+
+  protected _unpin(): void {
+    this._persistent = false
+    this._toggle_description(false)
+  }
+
+  protected _toggle_description(visible: boolean): void {
+    const {description} = this
+    if (!(description instanceof View)) {
+      return
+    }
+    description.model.setv({visible, closable: this._persistent})
+    this.icon_el?.classList.toggle(inputs.opaque, visible && this._persistent)
+  }
+
+  protected _on_description_visible(): void {
+    const {description} = this
+    if (!(description instanceof View)) {
+      return
+    }
+    const {visible} = description.model
+    if (!visible) {
+      this._persistent = false
+    }
+    this._toggle_description(visible)
   }
 
   protected async _build_title(): Promise<void> {
@@ -162,12 +192,17 @@ export abstract class InputWidgetView extends ControlView {
   }
 
   protected async _build_description(): Promise<void> {
-    if (this.description instanceof View) {
-      this.description.remove()
+    const {description: previous} = this
+    if (previous instanceof View) {
+      this.disconnect(previous.model.properties.visible.change, this._on_description_visible)
+      previous.remove()
     }
+    this._persistent = false
+
     const {description} = this.model
     if (description instanceof Tooltip) {
       this.description = await build_view(description, {parent: this})
+      this.connect(description.properties.visible.change, this._on_description_visible)
     } else {
       this.description = description
     }

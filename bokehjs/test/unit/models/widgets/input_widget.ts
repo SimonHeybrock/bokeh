@@ -39,4 +39,24 @@ describe("InputWidgetView", () => {
 
     expect(description_view.is_destroyed).to.be.true
   })
+
+  it("should keep a pinned description in sync with its icon across re-renders", async () => {
+    const description = new Tooltip({content: "description", position: "bottom_center"})
+    const input = new TextInput({title: "a title", description})
+    const {view} = await display(input, [200, 50])
+
+    function click_icon(): void {
+      expect_not_null(view.desc_el)
+      view.desc_el.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, composed: true}))
+    }
+
+    click_icon()
+    expect(description.visible).to.be.true
+
+    input.title = "another title"
+    await view.ready
+
+    click_icon()
+    expect(description.visible).to.be.false
+  })
 })
