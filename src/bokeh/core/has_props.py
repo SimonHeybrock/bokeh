@@ -652,10 +652,22 @@ class HasProps(Serializable, metaclass=MetaHasProps):
                 themed_keys = set(themed_values.keys())
                 selected_keys |= themed_keys
 
+        overridden_defaults = self._overridden_defaults()
+
         for key in keys:
             descriptor = self.lookup(key)
             if not query(descriptor):
                 continue
+
+            if key not in selected_keys:
+                # The value is the class default, which is left out of the result.
+                # Producing it means copying and validating the default, so decide
+                # from the raw default where that is enough. A callable default
+                # still goes through get_value() below, which materializes it as
+                # before, and an Undefined default must still raise.
+                default = overridden_defaults.get(key, getattr(descriptor.property, "_default", Undefined))
+                if not (callable(default) or default is Undefined):
+                    continue
 
             try:
                 value = descriptor.get_value(self)
@@ -665,9 +677,6 @@ class HasProps(Serializable, metaclass=MetaHasProps):
                 else:
                     raise
             else:
-                # TODO: this should happen before get_value(), however there's currently
-                # no reliable way of checking if a property is unset without actually
-                # getting the value.
                 if key not in selected_keys:
                     continue
 

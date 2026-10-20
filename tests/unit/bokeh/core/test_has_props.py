@@ -634,6 +634,15 @@ def test_HasProps_properties_with_values_unset() -> None:
     assert v1.properties_with_values(include_defaults=False, include_undefined=True) == {"f0": 10}
     assert v1.properties_with_values(include_defaults=True, include_undefined=True) == {"f0": 10, "f1": 0, "f2": 1}
 
+def test_HasProps_properties_with_values_does_not_produce_skipped_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    v0 = Some4HasProps(f0=10)
+
+    def fail(self, obj):
+        raise AssertionError(f"default of {self.name} was produced")
+
+    monkeypatch.setattr(PropertyDescriptor, "instance_default", fail)
+    assert v0.properties_with_values(include_defaults=False) == {"f0": 10}
+
 def test_HasProps_descriptors() -> None:
     v0 = Some0HasProps()
 
